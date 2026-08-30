@@ -73,12 +73,17 @@ def update_service_status(record_id: UUID, record_update: schemas.ServiceRecordU
     if not db_record:
         raise HTTPException(status_code=404, detail="Service record not found")
     
-    # Update the status
     db_record.status = record_update.status
     
     # Automatically timestamp when the job is marked as Completed
     if record_update.status == "Completed" and not db_record.completed_at:
         db_record.completed_at = datetime.utcnow()
+        
+        # UPDATE THE VEHICLE'S MASTER RECORD
+        vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == db_record.vehicle_id).first()
+        if vehicle:
+            vehicle.last_service_date = db_record.completed_at
+            vehicle.last_service_odometer = vehicle.current_odometer
         
     db.commit()
     db.refresh(db_record)
