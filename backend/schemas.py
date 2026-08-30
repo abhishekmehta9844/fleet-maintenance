@@ -47,3 +47,16 @@ class ServiceRecordResponse(ServiceRecordBase):
 
     class Config:
         from_attributes = True
+
+
+# --- User & Assignment Schemas ---
+class UserResponse(BaseModel):
+    id: UUID
+    email: str
+    role: str
+
+    class Config:
+        from_attributes = True
+
+class AssignmentCreate(BaseModel):
+    technician_id: UUID

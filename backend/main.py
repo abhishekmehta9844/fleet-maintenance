@@ -83,3 +83,34 @@ def update_service_status(record_id: UUID, record_update: schemas.ServiceRecordU
     db.commit()
     db.refresh(db_record)
     return db_record
+
+@app.get("/technicians/", response_model=List[schemas.UserResponse])
+def get_technicians(db: Session = Depends(get_db)):
+    techs = db.query(models.User).filter(models.User.role == "technician").all()
+    # Auto-generate a test technician if the database is empty
+    if not techs:
+        dummy_tech = models.User(email="tech_bob@fleet.com", password_hash="fake_hash", role="technician")
+        db.add(dummy_tech)
+        db.commit()
+        db.refresh(dummy_tech)
+        return [dummy_tech]
+    return techs
+
+@app.post("/service-records/{record_id}/assign")
+def assign_technician(record_id: UUID, assign_data: schemas.AssignmentCreate, db: Session = Depends(get_db)):
+    # Prevent assigning the exact same technician to the exact same task twice
+    existing = db.query(models.Assignment).filter_by(
+        service_record_id=record_id, 
+        technician_id=assign_data.technician_id
+    ).first()
+    
+    if existing:
+        return {"status": "Already assigned"}
+        
+    new_assignment = models.Assignment(
+        service_record_id=record_id, 
+        technician_id=assign_data.technician_id
+    )
+    db.add(new_assignment)
+    db.commit()
+    return {"status": "Successfully assigned"}
