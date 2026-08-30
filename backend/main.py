@@ -28,6 +28,18 @@ def get_db():
     finally:
         db.close()
 
+def log_audit(db: Session, action_type: str, old_value: str = None, new_value: str = None, service_record_id: UUID = None, user_id: UUID = None):
+    new_log = models.AuditLog(
+        action_type=action_type,
+        old_value=old_value,
+        new_value=new_value,
+        service_record_id=service_record_id,
+        user_id=user_id
+    )
+    db.add(new_log)
+    # We let the parent route commit this in the same transaction
+
+
 @app.post("/vehicles/", response_model=schemas.VehicleResponse)
 def create_vehicle(vehicle: schemas.VehicleCreate, db: Session = Depends(get_db)):
     # Prevent duplicate registration numbers
@@ -73,17 +85,28 @@ def update_service_status(record_id: UUID, record_update: schemas.ServiceRecordU
     if not db_record:
         raise HTTPException(status_code=404, detail="Service record not found")
     
+    # 1. Capture the old status BEFORE changing it
+    old_status = db_record.status
+    
+    # 2. Apply the new status
     db_record.status = record_update.status
     
-    # Automatically timestamp when the job is marked as Completed
     if record_update.status == "Completed" and not db_record.completed_at:
         db_record.completed_at = datetime.utcnow()
         
-        # UPDATE THE VEHICLE'S MASTER RECORD
         vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == db_record.vehicle_id).first()
         if vehicle:
             vehicle.last_service_date = db_record.completed_at
             vehicle.last_service_odometer = vehicle.current_odometer
+            
+    # 3. Record the change in the immutable audit ledger
+    log_audit(
+        db=db, 
+        action_type="STATUS_CHANGE", 
+        old_value=old_status,
+        new_value=record_update.status,
+        service_record_id=record_id
+    )
         
     db.commit()
     db.refresh(db_record)
@@ -127,6 +150,14 @@ def bulk_update_odometers(data: schemas.BulkOdometerUpdateRequest, db: Session =
         vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == update.id).first()
         if vehicle and update.new_odometer >= vehicle.current_odometer:
             vehicle.current_odometer = update.new_odometer
+
+            # Log the vehicle update (leaving service_record_id null)
+            log_audit(
+                db=db, 
+                action_type="ODOMETER_UPDATE", 
+                old_value=f"Vehicle {update.id}: {old_odo}",
+                new_value=str(update.new_odometer)
+            )
             updated_count += 1
             
     db.commit()
