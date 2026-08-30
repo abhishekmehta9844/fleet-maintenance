@@ -49,12 +49,18 @@ class ServiceRecordUpdate(BaseModel):
 class ServiceRecordResponse(ServiceRecordBase):
     id: UUID
     vehicle_id: UUID
+    vehicle_registration_number: Optional[str] = None
     status: str
     created_at: datetime
+    updated_at: datetime
     completed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+class ServiceRecordListResponse(BaseModel):
+    total: int
+    items: List[ServiceRecordResponse]
 
 
 # --- User & Assignment Schemas ---

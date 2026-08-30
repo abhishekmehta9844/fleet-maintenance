@@ -1,7 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timedelta
 from uuid import UUID
 import models, schemas, auth
@@ -25,6 +25,12 @@ VALID_TRANSITIONS = {
     "Due": "Booked",
     "Booked": "In Service",
     "In Service": "Completed",
+}
+
+VALID_SORT_FIELDS = {
+    "scheduled_date": models.ServiceRecord.scheduled_date,
+    "status": models.ServiceRecord.status,
+    "updated_at": models.ServiceRecord.updated_at,
 }
 
 def log_audit(db: Session, action_type: str, old_value: str = None, new_value: str = None, service_record_id: UUID = None, user_id: UUID = None):
@@ -192,7 +198,46 @@ def create_service_record(record: schemas.ServiceRecordCreate, db: Session = Dep
     db.add(new_record)
     db.commit()
     db.refresh(new_record)
+    new_record.vehicle_registration_number = vehicle.registration_number
     return new_record
+
+@app.get("/service-records/", response_model=schemas.ServiceRecordListResponse)
+def list_service_records(
+    search: str = "",
+    vehicle_id: Optional[UUID] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    technician_id: Optional[UUID] = None,
+    sort_by: str = "updated_at",
+    sort_order: str = "desc",
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    query = db.query(models.ServiceRecord)
+
+    if current_user.role == "technician":
+        query = query.join(models.Assignment).filter(models.Assignment.technician_id == current_user.id)
+    elif technician_id:
+        query = query.join(models.Assignment).filter(models.Assignment.technician_id == technician_id)
+
+    if search:
+        query = query.filter(models.ServiceRecord.description.ilike(f"%{search}%"))
+    if vehicle_id:
+        query = query.filter(models.ServiceRecord.vehicle_id == vehicle_id)
+    if status_filter:
+        query = query.filter(models.ServiceRecord.status == status_filter)
+
+    total = query.count()
+
+    sort_column = VALID_SORT_FIELDS.get(sort_by, models.ServiceRecord.updated_at)
+    query = query.order_by(sort_column.asc() if sort_order == "asc" else sort_column.desc())
+
+    records = query.offset(skip).limit(limit).all()
+    for record in records:
+        record.vehicle_registration_number = record.vehicle.registration_number if record.vehicle else None
+
+    return schemas.ServiceRecordListResponse(total=total, items=records)
 
 @app.get("/vehicles/{vehicle_id}/service-records/", response_model=List[schemas.ServiceRecordResponse])
 def get_vehicle_service_records(vehicle_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
@@ -269,6 +314,7 @@ def update_service_status(record_id: UUID, record_update: schemas.ServiceRecordU
 
     db.commit()
     db.refresh(db_record)
+    db_record.vehicle_registration_number = db_record.vehicle.registration_number if db_record.vehicle else None
     return db_record
 
 @app.get("/technicians/", response_model=List[schemas.UserResponse])

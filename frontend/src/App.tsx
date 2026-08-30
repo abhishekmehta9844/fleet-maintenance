@@ -5,10 +5,12 @@ import VehicleList from './components/VehicleList';
 import VehicleForm from './components/VehicleForm';
 import BulkOdometerUpdate from './components/BulkOdometerUpdate';
 import FleetDashboard from './components/FleetDashboard';
+import ServiceRecordSearch from './components/ServiceRecordSearch';
 
 function FleetApp() {
   const { user, loading, logout } = useAuth();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [activeTab, setActiveTab] = useState<'vehicles' | 'records'>('vehicles');
 
   const refreshData = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -37,16 +39,37 @@ function FleetApp() {
           </div>
         </div>
 
-        <FleetDashboard refreshTrigger={refreshTrigger} />
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('vehicles')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'vehicles' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+          >
+            Vehicles
+          </button>
+          <button
+            onClick={() => setActiveTab('records')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'records' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+          >
+            Service Records
+          </button>
+        </div>
 
-        {user.role === 'manager' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <VehicleForm onVehicleAdded={refreshData} />
-            <BulkOdometerUpdate key={`bulk-${refreshTrigger}`} onUpdateComplete={refreshData} />
-          </div>
+        {activeTab === 'vehicles' ? (
+          <>
+            <FleetDashboard refreshTrigger={refreshTrigger} />
+
+            {user.role === 'manager' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <VehicleForm onVehicleAdded={refreshData} />
+                <BulkOdometerUpdate key={`bulk-${refreshTrigger}`} onUpdateComplete={refreshData} />
+              </div>
+            )}
+
+            <VehicleList key={refreshTrigger} userRole={user.role} />
+          </>
+        ) : (
+          <ServiceRecordSearch userRole={user.role} />
         )}
-
-        <VehicleList key={refreshTrigger} userRole={user.role} />
       </div>
     </div>
   );

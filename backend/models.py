@@ -38,6 +38,7 @@ class ServiceRecord(Base):
     scheduled_date = Column(DateTime, nullable=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
 
     vehicle = relationship("Vehicle", back_populates="records")
