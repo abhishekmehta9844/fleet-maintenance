@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
 import models, schemas
 from database import engine, SessionLocal
 
@@ -60,7 +61,7 @@ def create_service_record(record: schemas.ServiceRecordCreate, db: Session = Dep
     return new_record
 
 @app.get("/vehicles/{vehicle_id}/service-records/", response_model=List[schemas.ServiceRecordResponse])
-def get_vehicle_service_records(vehicle_id: str, db: Session = Depends(get_db)):
+def get_vehicle_service_records(vehicle_id: UUID, db: Session = Depends(get_db)):
     # Fetch all service history for a specific vehicle
     records = db.query(models.ServiceRecord).filter(models.ServiceRecord.vehicle_id == vehicle_id).order_by(models.ServiceRecord.created_at.desc()).all()
     return records
