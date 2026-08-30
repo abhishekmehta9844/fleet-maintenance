@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiFetch } from '../lib/api';
 
 export default function VehicleForm({ onVehicleAdded }: { onVehicleAdded: () => void }) {
   const [formData, setFormData] = useState({
@@ -12,9 +13,8 @@ export default function VehicleForm({ onVehicleAdded }: { onVehicleAdded: () => 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:8000/vehicles/', {
+      const response = await apiFetch('/vehicles/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
 
@@ -26,7 +26,7 @@ export default function VehicleForm({ onVehicleAdded }: { onVehicleAdded: () => 
           service_interval_months: 6,
           service_interval_miles: 5000,
         });
-        onVehicleAdded(); // Tell the list to refresh
+        onVehicleAdded();
       } else {
         alert("Error adding vehicle. Check if registration already exists.");
       }

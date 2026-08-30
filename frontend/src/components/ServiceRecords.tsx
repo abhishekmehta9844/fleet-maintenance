@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface ServiceRecord {
   id: string;
@@ -17,14 +18,14 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
   const [description, setDescription] = useState('');
 
   const fetchRecords = () => {
-    fetch(`http://127.0.0.1:8000/vehicles/${vehicleId}/service-records/`)
+    apiFetch(`/vehicles/${vehicleId}/service-records/`)
       .then(res => res.json())
       .then(data => setRecords(data))
       .catch(err => console.error(err));
   };
 
   const fetchTechnicians = () => {
-    fetch('http://127.0.0.1:8000/technicians/')
+    apiFetch('/technicians/')
       .then(res => res.json())
       .then(data => setTechnicians(data))
       .catch(err => console.error(err));
@@ -37,15 +38,14 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
 
   const handleAddRecord = async (e: React.FormEvent) => {
     e.preventDefault();
-    const response = await fetch('http://127.0.0.1:8000/service-records/', {
+    const response = await apiFetch('/service-records/', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         vehicle_id: vehicleId,
         description: description
       })
     });
-    
+
     if (response.ok) {
       setDescription('');
       fetchRecords();
@@ -53,12 +53,11 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
   };
 
   const handleStatusChange = async (recordId: string, newStatus: string) => {
-    const response = await fetch(`http://127.0.0.1:8000/service-records/${recordId}`, {
+    const response = await apiFetch(`/service-records/${recordId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus }),
     });
-    
+
     if (response.ok) {
       fetchRecords();
     }
@@ -66,15 +65,14 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
 
   const handleAssign = async (recordId: string, techId: string) => {
     if (!techId) return;
-    const response = await fetch(`http://127.0.0.1:8000/service-records/${recordId}/assign`, {
+    const response = await apiFetch(`/service-records/${recordId}/assign`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ technician_id: techId }),
     });
-    
+
     if (response.ok) {
       const result = await response.json();
-      alert(result.status); // Will pop up saying "Successfully assigned" or "Already assigned"
+      alert(result.status);
     }
   };
 
@@ -91,15 +89,15 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
   return (
     <div className="mt-4 pt-4 border-t border-gray-200">
       <h4 className="text-sm font-bold text-gray-700 mb-3">Service History</h4>
-      
+
       <form onSubmit={handleAddRecord} className="flex gap-2 mb-4">
-        <input 
-          type="text" 
-          required 
-          placeholder="New task description..." 
+        <input
+          type="text"
+          required
+          placeholder="New task description..."
           className="flex-1 rounded-md border-gray-300 border px-2 py-1 text-sm"
-          value={description} 
-          onChange={e => setDescription(e.target.value)} 
+          value={description}
+          onChange={e => setDescription(e.target.value)}
         />
         <button type="submit" className="bg-gray-800 text-white px-3 py-1 rounded-md text-sm hover:bg-gray-900 transition">
           Add
@@ -112,7 +110,7 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
           <li key={record.id} className="text-sm flex flex-col gap-2 bg-gray-50 p-3 rounded border border-gray-100 shadow-sm">
             <div className="flex justify-between items-center">
               <span className="text-gray-700 font-medium truncate mr-2">{record.description}</span>
-              <select 
+              <select
                 value={record.status}
                 onChange={(e) => handleStatusChange(record.id, e.target.value)}
                 className={`text-xs font-semibold rounded-md border-0 px-2 py-1 cursor-pointer focus:ring-0 ${getStatusColor(record.status)}`}
@@ -123,14 +121,13 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
                 <option value="Completed">Completed</option>
               </select>
             </div>
-            {/* New Assignment Row - ONLY FOR MANAGERS */}
             {userRole === 'manager' && (
               <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-1">
                 <span className="text-xs text-gray-500">Assign Technician:</span>
                 <select
                   onChange={(e) => {
                     handleAssign(record.id, e.target.value);
-                    e.target.value = ""; 
+                    e.target.value = "";
                   }}
                   defaultValue=""
                   className="text-xs rounded-md border border-gray-300 px-2 py-1 bg-white cursor-pointer hover:bg-gray-50"
@@ -142,23 +139,6 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
                 </select>
               </div>
             )}
-            {/* New Assignment Row */}
-            <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-1">
-              <span className="text-xs text-gray-500">Assign Technician:</span>
-              <select
-                onChange={(e) => {
-                  handleAssign(record.id, e.target.value);
-                  e.target.value = ""; // Instantly resets back to placeholder
-                }}
-                defaultValue=""
-                className="text-xs rounded-md border border-gray-300 px-2 py-1 bg-white cursor-pointer hover:bg-gray-50"
-              >
-                <option value="" disabled>+ Select Tech</option>
-                {technicians.map(tech => (
-                  <option key={tech.id} value={tech.id}>{tech.email.split('@')[0]}</option>
-                ))}
-              </select>
-            </div>
           </li>
         ))}
       </ul>

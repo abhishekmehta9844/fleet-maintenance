@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface Vehicle {
   id: string;
@@ -11,11 +12,10 @@ export default function BulkOdometerUpdate({ onUpdateComplete }: { onUpdateCompl
   const [odometerValues, setOdometerValues] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/vehicles/')
+    apiFetch('/vehicles/')
       .then(res => res.json())
       .then(data => {
         setVehicles(data);
-        // Pre-fill the inputs with the current odometer readings
         const initialValues: Record<string, number> = {};
         data.forEach((v: Vehicle) => {
           initialValues[v.id] = v.current_odometer;
@@ -27,8 +27,7 @@ export default function BulkOdometerUpdate({ onUpdateComplete }: { onUpdateCompl
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Filter out vehicles that haven't changed to save database calls
+
     const updates = vehicles
       .filter(v => odometerValues[v.id] > v.current_odometer)
       .map(v => ({
@@ -41,16 +40,15 @@ export default function BulkOdometerUpdate({ onUpdateComplete }: { onUpdateCompl
       return;
     }
 
-    const response = await fetch('http://127.0.0.1:8000/vehicles/bulk-odometer/', {
+    const response = await apiFetch('/vehicles/bulk-odometer/', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ updates }),
     });
 
     if (response.ok) {
       const result = await response.json();
       alert(`Successfully updated ${result.updated_count} vehicles!`);
-      onUpdateComplete(); // Refresh the main vehicle list
+      onUpdateComplete();
     }
   };
 
