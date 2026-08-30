@@ -12,10 +12,23 @@ interface Technician {
   email: string;
 }
 
+const NEXT_STATUS: Record<string, string> = {
+  'Due': 'Booked',
+  'Booked': 'In Service',
+  'In Service': 'Completed',
+};
+
+const NEXT_ACTION_LABEL: Record<string, string> = {
+  'Due': 'Book Service',
+  'Booked': 'Start Service',
+  'In Service': 'Mark Completed',
+};
+
 export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: string, userRole: 'manager' | 'technician' }) {
   const [records, setRecords] = useState<ServiceRecord[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [description, setDescription] = useState('');
+  const [bookingDates, setBookingDates] = useState<Record<string, string>>({});
 
   const fetchRecords = () => {
     apiFetch(`/vehicles/${vehicleId}/service-records/`)
@@ -52,14 +65,25 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
     }
   };
 
-  const handleStatusChange = async (recordId: string, newStatus: string) => {
-    const response = await apiFetch(`/service-records/${recordId}`, {
+  const handleAdvance = async (record: ServiceRecord) => {
+    const nextStatus = NEXT_STATUS[record.status];
+    if (!nextStatus) return;
+
+    const body: Record<string, string> = { status: nextStatus };
+    if (record.status === 'Due') {
+      body.scheduled_date = bookingDates[record.id];
+    }
+
+    const response = await apiFetch(`/service-records/${record.id}`, {
       method: 'PUT',
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify(body),
     });
 
     if (response.ok) {
       fetchRecords();
+    } else {
+      const error = await response.json();
+      alert(error.detail || 'Could not update this service record.');
     }
   };
 
@@ -106,41 +130,58 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
 
       <ul className="space-y-2 max-h-64 overflow-y-auto pr-1">
         {records.length === 0 ? <li className="text-xs text-gray-500">No records found.</li> : null}
-        {records.map(record => (
-          <li key={record.id} className="text-sm flex flex-col gap-2 bg-gray-50 p-3 rounded border border-gray-100 shadow-sm">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-700 font-medium truncate mr-2">{record.description}</span>
-              <select
-                value={record.status}
-                onChange={(e) => handleStatusChange(record.id, e.target.value)}
-                className={`text-xs font-semibold rounded-md border-0 px-2 py-1 cursor-pointer focus:ring-0 ${getStatusColor(record.status)}`}
-              >
-                <option value="Due">Due</option>
-                <option value="Booked">Booked</option>
-                <option value="In Service">In Service</option>
-                <option value="Completed">Completed</option>
-              </select>
-            </div>
-            {userRole === 'manager' && (
-              <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-1">
-                <span className="text-xs text-gray-500">Assign Technician:</span>
-                <select
-                  onChange={(e) => {
-                    handleAssign(record.id, e.target.value);
-                    e.target.value = "";
-                  }}
-                  defaultValue=""
-                  className="text-xs rounded-md border border-gray-300 px-2 py-1 bg-white cursor-pointer hover:bg-gray-50"
-                >
-                  <option value="" disabled>+ Select Tech</option>
-                  {technicians.map(tech => (
-                    <option key={tech.id} value={tech.id}>{tech.email.split('@')[0]}</option>
-                  ))}
-                </select>
+        {records.map(record => {
+          const nextStatus = NEXT_STATUS[record.status];
+          return (
+            <li key={record.id} className="text-sm flex flex-col gap-2 bg-gray-50 p-3 rounded border border-gray-100 shadow-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700 font-medium truncate mr-2">{record.description}</span>
+                <span className={`text-xs font-semibold rounded-md px-2 py-1 ${getStatusColor(record.status)}`}>
+                  {record.status}
+                </span>
               </div>
-            )}
-          </li>
-        ))}
+
+              {nextStatus && (
+                <div className="flex items-center gap-2 border-t border-gray-200 pt-2 mt-1">
+                  {record.status === 'Due' && (
+                    <input
+                      type="date"
+                      value={bookingDates[record.id] || ''}
+                      onChange={e => setBookingDates({ ...bookingDates, [record.id]: e.target.value })}
+                      className="text-xs rounded-md border border-gray-300 px-2 py-1"
+                    />
+                  )}
+                  <button
+                    onClick={() => handleAdvance(record)}
+                    disabled={record.status === 'Due' && !bookingDates[record.id]}
+                    className="text-xs bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-3 py-1 rounded-md hover:bg-gray-900 transition"
+                  >
+                    {NEXT_ACTION_LABEL[record.status]}
+                  </button>
+                </div>
+              )}
+
+              {userRole === 'manager' && (
+                <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-1">
+                  <span className="text-xs text-gray-500">Assign Technician:</span>
+                  <select
+                    onChange={(e) => {
+                      handleAssign(record.id, e.target.value);
+                      e.target.value = "";
+                    }}
+                    defaultValue=""
+                    className="text-xs rounded-md border border-gray-300 px-2 py-1 bg-white cursor-pointer hover:bg-gray-50"
+                  >
+                    <option value="" disabled>+ Select Tech</option>
+                    {technicians.map(tech => (
+                      <option key={tech.id} value={tech.id}>{tech.email.split('@')[0]}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

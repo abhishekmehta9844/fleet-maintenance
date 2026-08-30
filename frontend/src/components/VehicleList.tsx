@@ -11,6 +11,7 @@ interface Vehicle {
   last_service_date: string | null;
   service_interval_miles: number;
   service_interval_months: number;
+  is_overdue: boolean;
 }
 
 export default function VehicleList({ userRole }: { userRole: 'manager' | 'technician' }) {
@@ -24,33 +25,14 @@ export default function VehicleList({ userRole }: { userRole: 'manager' | 'techn
       .catch(err => console.error("Error fetching vehicles:", err));
   }, []);
 
-  const isOverdue = (vehicle: Vehicle) => {
-    if (vehicle.last_service_odometer !== null) {
-      if ((vehicle.current_odometer - vehicle.last_service_odometer) >= vehicle.service_interval_miles) {
-        return true;
-      }
-    } else if (vehicle.current_odometer >= vehicle.service_interval_miles) {
-      return true;
-    }
-
-    if (vehicle.last_service_date) {
-      const lastService = new Date(vehicle.last_service_date);
-      const monthsSince = (new Date().getTime() - lastService.getTime()) / (1000 * 60 * 60 * 24 * 30);
-      if (monthsSince >= vehicle.service_interval_months) {
-        return true;
-      }
-    }
-    return false;
-  };
-
   return (
     <div className="mt-8">
       <h2 className="text-2xl font-semibold mb-4 text-gray-800">Fleet Vehicles</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {vehicles.map((vehicle) => (
-          <div key={vehicle.id} className={`bg-white p-6 rounded-xl shadow-sm border transition-shadow ${isOverdue(vehicle) ? 'border-red-400' : 'border-gray-200 hover:shadow-md'}`}>
+          <div key={vehicle.id} className={`bg-white p-6 rounded-xl shadow-sm border transition-shadow ${vehicle.is_overdue ? 'border-red-400' : 'border-gray-200 hover:shadow-md'}`}>
 
-            {isOverdue(vehicle) && (
+            {vehicle.is_overdue && (
               <div className="bg-red-100 text-red-800 text-xs font-bold px-3 py-1 rounded-full inline-block mb-3 animate-pulse">
                 ⚠️ SERVICE OVERDUE
               </div>

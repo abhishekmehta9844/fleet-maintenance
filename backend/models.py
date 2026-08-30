@@ -9,7 +9,7 @@ class User(Base):
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(50), nullable=False) 
+    role = Column(String(50), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     service_records = relationship("ServiceRecord", secondary="assignments", back_populates="technicians")
@@ -26,6 +26,7 @@ class Vehicle(Base):
     last_service_odometer = Column(Integer, nullable=True)
     is_archived = Column(Boolean, default=False)
     is_alert_dismissed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     records = relationship("ServiceRecord", back_populates="vehicle")
 

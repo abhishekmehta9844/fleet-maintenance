@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 import models, schemas, auth
 from database import engine, get_db
@@ -19,6 +19,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+OVERDUE_GRACE_PERIOD_DAYS = 3
+
+VALID_TRANSITIONS = {
+    "Due": "Booked",
+    "Booked": "In Service",
+    "In Service": "Completed",
+}
+
 def log_audit(db: Session, action_type: str, old_value: str = None, new_value: str = None, service_record_id: UUID = None, user_id: UUID = None):
     new_log = models.AuditLog(
         action_type=action_type,
@@ -28,6 +36,51 @@ def log_audit(db: Session, action_type: str, old_value: str = None, new_value: s
         user_id=user_id,
     )
     db.add(new_log)
+
+def vehicle_is_due(vehicle: models.Vehicle) -> bool:
+    baseline_date = vehicle.last_service_date or vehicle.created_at
+    baseline_odometer = vehicle.last_service_odometer if vehicle.last_service_odometer is not None else 0
+
+    months_since = (datetime.utcnow() - baseline_date).days / 30
+    if months_since >= vehicle.service_interval_months:
+        return True
+
+    miles_since = vehicle.current_odometer - baseline_odometer
+    if miles_since >= vehicle.service_interval_miles:
+        return True
+
+    return False
+
+def sync_due_record(db: Session, vehicle: models.Vehicle):
+    open_statuses = ["Due", "Booked", "In Service"]
+    existing_open = (
+        db.query(models.ServiceRecord)
+        .filter(models.ServiceRecord.vehicle_id == vehicle.id)
+        .filter(models.ServiceRecord.status.in_(open_statuses))
+        .first()
+    )
+    if existing_open or not vehicle_is_due(vehicle):
+        return
+
+    new_record = models.ServiceRecord(
+        vehicle_id=vehicle.id,
+        status="Due",
+        description="Scheduled maintenance — interval reached",
+    )
+    db.add(new_record)
+    db.commit()
+
+def compute_is_overdue(db: Session, vehicle: models.Vehicle) -> bool:
+    due_record = (
+        db.query(models.ServiceRecord)
+        .filter(models.ServiceRecord.vehicle_id == vehicle.id, models.ServiceRecord.status == "Due")
+        .order_by(models.ServiceRecord.created_at.desc())
+        .first()
+    )
+    if not due_record:
+        return False
+    grace_deadline = due_record.created_at + timedelta(days=OVERDUE_GRACE_PERIOD_DAYS)
+    return datetime.utcnow() > grace_deadline
 
 
 @app.post("/auth/register", response_model=schemas.UserResponse)
@@ -69,11 +122,15 @@ def create_vehicle(vehicle: schemas.VehicleCreate, db: Session = Depends(get_db)
     db.add(new_vehicle)
     db.commit()
     db.refresh(new_vehicle)
+    new_vehicle.is_overdue = False
     return new_vehicle
 
 @app.get("/vehicles/", response_model=List[schemas.VehicleResponse])
 def read_vehicles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     vehicles = db.query(models.Vehicle).filter(models.Vehicle.is_archived == False).offset(skip).limit(limit).all()
+    for vehicle in vehicles:
+        sync_due_record(db, vehicle)
+        vehicle.is_overdue = compute_is_overdue(db, vehicle)
     return vehicles
 
 @app.post("/service-records/", response_model=schemas.ServiceRecordResponse)
@@ -119,24 +176,47 @@ def update_service_status(record_id: UUID, record_update: schemas.ServiceRecordU
             raise HTTPException(status_code=403, detail="You are not assigned to this service record")
 
     old_status = db_record.status
-    db_record.status = record_update.status
+    new_status = record_update.status
 
-    if record_update.status == "Completed" and not db_record.completed_at:
-        db_record.completed_at = datetime.utcnow()
+    if new_status != old_status:
+        expected_next = VALID_TRANSITIONS.get(old_status)
+        if new_status != expected_next:
+            if expected_next:
+                detail = f"Cannot move a service record from '{old_status}' to '{new_status}'. The only allowed next step is '{expected_next}'."
+            else:
+                detail = f"'{old_status}' is a final state and cannot be changed."
+            raise HTTPException(status_code=400, detail=detail)
 
-        vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == db_record.vehicle_id).first()
-        if vehicle:
-            vehicle.last_service_date = db_record.completed_at
-            vehicle.last_service_odometer = vehicle.current_odometer
+        if new_status == "Booked":
+            has_date = record_update.scheduled_date or db_record.scheduled_date
+            if not has_date:
+                raise HTTPException(status_code=400, detail="Cannot move to Booked without a scheduled date.")
+            technician_count = db.query(models.Assignment).filter_by(service_record_id=record_id).count()
+            if technician_count == 0:
+                raise HTTPException(status_code=400, detail="Cannot move to Booked without at least one technician assigned.")
 
-    log_audit(
-        db=db,
-        action_type="STATUS_CHANGE",
-        old_value=old_status,
-        new_value=record_update.status,
-        service_record_id=record_id,
-        user_id=current_user.id,
-    )
+        db_record.status = new_status
+
+        if new_status == "Completed":
+            db_record.completed_at = datetime.utcnow()
+            vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == db_record.vehicle_id).first()
+            if vehicle:
+                vehicle.last_service_date = db_record.completed_at
+                vehicle.last_service_odometer = vehicle.current_odometer
+
+        log_audit(
+            db=db,
+            action_type="STATUS_CHANGE",
+            old_value=old_status,
+            new_value=new_status,
+            service_record_id=record_id,
+            user_id=current_user.id,
+        )
+
+    if record_update.scheduled_date:
+        db_record.scheduled_date = record_update.scheduled_date
+    if record_update.description is not None:
+        db_record.description = record_update.description
 
     db.commit()
     db.refresh(db_record)

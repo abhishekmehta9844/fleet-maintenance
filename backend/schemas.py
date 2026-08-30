@@ -20,6 +20,7 @@ class VehicleResponse(VehicleBase):
     last_service_odometer: Optional[int] = None
     is_archived: bool
     is_alert_dismissed: bool
+    is_overdue: bool = False
 
     class Config:
         from_attributes = True
