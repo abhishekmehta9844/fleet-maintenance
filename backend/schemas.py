@@ -14,6 +14,13 @@ class VehicleBase(BaseModel):
 class VehicleCreate(VehicleBase):
     pass
 
+class VehicleUpdate(BaseModel):
+    registration_number: Optional[str] = None
+    make_model: Optional[str] = None
+    current_odometer: Optional[int] = None
+    service_interval_months: Optional[int] = None
+    service_interval_miles: Optional[int] = None
+
 class VehicleResponse(VehicleBase):
     id: UUID
     last_service_date: Optional[datetime] = None

@@ -126,12 +126,61 @@ def create_vehicle(vehicle: schemas.VehicleCreate, db: Session = Depends(get_db)
     return new_vehicle
 
 @app.get("/vehicles/", response_model=List[schemas.VehicleResponse])
-def read_vehicles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    vehicles = db.query(models.Vehicle).filter(models.Vehicle.is_archived == False).offset(skip).limit(limit).all()
+def read_vehicles(skip: int = 0, limit: int = 100, archived: bool = False, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    vehicles = db.query(models.Vehicle).filter(models.Vehicle.is_archived == archived).offset(skip).limit(limit).all()
     for vehicle in vehicles:
-        sync_due_record(db, vehicle)
+        if not archived:
+            sync_due_record(db, vehicle)
         vehicle.is_overdue = compute_is_overdue(db, vehicle)
     return vehicles
+
+@app.put("/vehicles/{vehicle_id}", response_model=schemas.VehicleResponse)
+def update_vehicle(vehicle_id: UUID, updates: schemas.VehicleUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == vehicle_id).first()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    update_data = updates.model_dump(exclude_unset=True)
+
+    if "registration_number" in update_data:
+        duplicate = (
+            db.query(models.Vehicle)
+            .filter(models.Vehicle.registration_number == update_data["registration_number"])
+            .filter(models.Vehicle.id != vehicle_id)
+            .first()
+        )
+        if duplicate:
+            raise HTTPException(status_code=400, detail="Registration number already registered to another vehicle")
+
+    for field, value in update_data.items():
+        setattr(vehicle, field, value)
+
+    db.commit()
+    db.refresh(vehicle)
+    vehicle.is_overdue = compute_is_overdue(db, vehicle)
+    return vehicle
+
+@app.put("/vehicles/{vehicle_id}/archive", response_model=schemas.VehicleResponse)
+def archive_vehicle(vehicle_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == vehicle_id).first()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    vehicle.is_archived = True
+    db.commit()
+    db.refresh(vehicle)
+    vehicle.is_overdue = False
+    return vehicle
+
+@app.put("/vehicles/{vehicle_id}/restore", response_model=schemas.VehicleResponse)
+def restore_vehicle(vehicle_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == vehicle_id).first()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    vehicle.is_archived = False
+    db.commit()
+    db.refresh(vehicle)
+    vehicle.is_overdue = compute_is_overdue(db, vehicle)
+    return vehicle
 
 @app.post("/service-records/", response_model=schemas.ServiceRecordResponse)
 def create_service_record(record: schemas.ServiceRecordCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
