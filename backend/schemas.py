@@ -23,3 +23,27 @@ class VehicleResponse(VehicleBase):
 
     class Config:
         from_attributes = True
+
+# --- Service Record Schemas ---
+class ServiceRecordBase(BaseModel):
+    description: Optional[str] = None
+    scheduled_date: Optional[datetime] = None
+
+class ServiceRecordCreate(ServiceRecordBase):
+    vehicle_id: UUID
+
+class ServiceRecordUpdate(BaseModel):
+    status: str
+    description: Optional[str] = None
+    scheduled_date: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+class ServiceRecordResponse(ServiceRecordBase):
+    id: UUID
+    vehicle_id: UUID
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

@@ -44,3 +44,23 @@ def read_vehicles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
     # Only return active vehicles
     vehicles = db.query(models.Vehicle).filter(models.Vehicle.is_archived == False).offset(skip).limit(limit).all()
     return vehicles
+
+@app.post("/service-records/", response_model=schemas.ServiceRecordResponse)
+def create_service_record(record: schemas.ServiceRecordCreate, db: Session = Depends(get_db)):
+    # Verify the vehicle exists first
+    vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == record.vehicle_id).first()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    
+    # Status defaults to "Due" via the SQLAlchemy model
+    new_record = models.ServiceRecord(**record.model_dump())
+    db.add(new_record)
+    db.commit()
+    db.refresh(new_record)
+    return new_record
+
+@app.get("/vehicles/{vehicle_id}/service-records/", response_model=List[schemas.ServiceRecordResponse])
+def get_vehicle_service_records(vehicle_id: str, db: Session = Depends(get_db)):
+    # Fetch all service history for a specific vehicle
+    records = db.query(models.ServiceRecord).filter(models.ServiceRecord.vehicle_id == vehicle_id).order_by(models.ServiceRecord.created_at.desc()).all()
+    return records
