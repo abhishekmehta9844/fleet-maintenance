@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import VehicleList from './components/VehicleList';
 import VehicleForm from './components/VehicleForm';
+import BulkOdometerUpdate from './components/BulkOdometerUpdate';
 
 function App() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  const handleVehicleAdded = () => {
+  const refreshData = () => {
     setRefreshTrigger(prev => prev + 1);
   };
 
@@ -16,7 +17,11 @@ function App() {
           Fleet Maintenance System
         </h1>
         
-        <VehicleForm onVehicleAdded={handleVehicleAdded} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <VehicleForm onVehicleAdded={refreshData} />
+          <BulkOdometerUpdate key={`bulk-${refreshTrigger}`} onUpdateComplete={refreshData} />
+        </div>
+        
         <VehicleList key={refreshTrigger} />
       </div>
     </div>
