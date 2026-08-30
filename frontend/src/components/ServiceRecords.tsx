@@ -11,7 +11,7 @@ interface Technician {
   email: string;
 }
 
-export default function ServiceRecords({ vehicleId }: { vehicleId: string }) {
+export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: string, userRole: 'manager' | 'technician' }) {
   const [records, setRecords] = useState<ServiceRecord[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [description, setDescription] = useState('');
@@ -123,7 +123,25 @@ export default function ServiceRecords({ vehicleId }: { vehicleId: string }) {
                 <option value="Completed">Completed</option>
               </select>
             </div>
-            
+            {/* New Assignment Row - ONLY FOR MANAGERS */}
+            {userRole === 'manager' && (
+              <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-1">
+                <span className="text-xs text-gray-500">Assign Technician:</span>
+                <select
+                  onChange={(e) => {
+                    handleAssign(record.id, e.target.value);
+                    e.target.value = ""; 
+                  }}
+                  defaultValue=""
+                  className="text-xs rounded-md border border-gray-300 px-2 py-1 bg-white cursor-pointer hover:bg-gray-50"
+                >
+                  <option value="" disabled>+ Select Tech</option>
+                  {technicians.map(tech => (
+                    <option key={tech.id} value={tech.id}>{tech.email.split('@')[0]}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {/* New Assignment Row */}
             <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-1">
               <span className="text-xs text-gray-500">Assign Technician:</span>

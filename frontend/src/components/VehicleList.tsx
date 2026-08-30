@@ -12,7 +12,7 @@ interface Vehicle {
   service_interval_months: number;
 }
 
-export default function VehicleList() {
+export default function VehicleList({ userRole }: { userRole: 'manager' | 'technician' }) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -81,7 +81,7 @@ export default function VehicleList() {
               <span className="text-xs text-gray-500">{vehicle.service_interval_miles.toLocaleString()} mi / {vehicle.service_interval_months} mo</span>
             </div>
             
-            {expandedId === vehicle.id && <ServiceRecords vehicleId={vehicle.id} />}
+            {expandedId === vehicle.id && <ServiceRecords vehicleId={vehicle.id} userRole={userRole}/>}
           </div>
         ))}
       </div>
