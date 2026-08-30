@@ -11,7 +11,7 @@ export default function ServiceRecords({ vehicleId }: { vehicleId: string }) {
   const [description, setDescription] = useState('');
 
   const fetchRecords = () => {
-    fetch(`http://localhost:8000/vehicles/${vehicleId}/service-records/`)
+    fetch(`http://127.0.0.1:8000/vehicles/${vehicleId}/service-records/`)
       .then(res => res.json())
       .then(data => setRecords(data))
       .catch(err => console.error(err));
@@ -23,7 +23,7 @@ export default function ServiceRecords({ vehicleId }: { vehicleId: string }) {
 
   const handleAddRecord = async (e: React.FormEvent) => {
     e.preventDefault();
-    const response = await fetch('http://localhost:8000/service-records/', {
+    const response = await fetch('http://127.0.0.1:8000/service-records/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -34,7 +34,30 @@ export default function ServiceRecords({ vehicleId }: { vehicleId: string }) {
     
     if (response.ok) {
       setDescription('');
-      fetchRecords(); // Refresh the list instantly
+      fetchRecords();
+    }
+  };
+
+  const handleStatusChange = async (recordId: string, newStatus: string) => {
+    const response = await fetch(`http://127.0.0.1:8000/service-records/${recordId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    
+    if (response.ok) {
+      fetchRecords(); // Refresh the list to show the new status
+    }
+  };
+
+  // Helper to color-code the dropdown based on the current state
+  const getStatusColor = (status: string) => {
+    switch(status) {
+      case 'Due': return 'bg-yellow-100 text-yellow-800';
+      case 'Booked': return 'bg-blue-100 text-blue-800';
+      case 'In Service': return 'bg-purple-100 text-purple-800';
+      case 'Completed': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -51,8 +74,8 @@ export default function ServiceRecords({ vehicleId }: { vehicleId: string }) {
           value={description} 
           onChange={e => setDescription(e.target.value)} 
         />
-        <button type="submit" className="bg-green-600 text-white px-3 py-1 rounded-md text-sm hover:bg-green-700 transition">
-          Schedule
+        <button type="submit" className="bg-gray-800 text-white px-3 py-1 rounded-md text-sm hover:bg-gray-900 transition">
+          Add
         </button>
       </form>
 
@@ -61,9 +84,16 @@ export default function ServiceRecords({ vehicleId }: { vehicleId: string }) {
         {records.map(record => (
           <li key={record.id} className="text-sm flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
             <span className="text-gray-700 truncate mr-2">{record.description}</span>
-            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-md text-xs font-semibold shrink-0">
-              {record.status}
-            </span>
+            <select 
+              value={record.status}
+              onChange={(e) => handleStatusChange(record.id, e.target.value)}
+              className={`text-xs font-semibold rounded-md border-0 px-2 py-1 cursor-pointer focus:ring-0 ${getStatusColor(record.status)}`}
+            >
+              <option value="Due">Due</option>
+              <option value="Booked">Booked</option>
+              <option value="In Service">In Service</option>
+              <option value="Completed">Completed</option>
+            </select>
           </li>
         ))}
       </ul>

@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 from uuid import UUID
 import models, schemas
 from database import engine, SessionLocal
@@ -65,3 +66,20 @@ def get_vehicle_service_records(vehicle_id: UUID, db: Session = Depends(get_db))
     # Fetch all service history for a specific vehicle
     records = db.query(models.ServiceRecord).filter(models.ServiceRecord.vehicle_id == vehicle_id).order_by(models.ServiceRecord.created_at.desc()).all()
     return records
+
+@app.put("/service-records/{record_id}", response_model=schemas.ServiceRecordResponse)
+def update_service_status(record_id: UUID, record_update: schemas.ServiceRecordUpdate, db: Session = Depends(get_db)):
+    db_record = db.query(models.ServiceRecord).filter(models.ServiceRecord.id == record_id).first()
+    if not db_record:
+        raise HTTPException(status_code=404, detail="Service record not found")
+    
+    # Update the status
+    db_record.status = record_update.status
+    
+    # Automatically timestamp when the job is marked as Completed
+    if record_update.status == "Completed" and not db_record.completed_at:
+        db_record.completed_at = datetime.utcnow()
+        
+    db.commit()
+    db.refresh(db_record)
+    return db_record
