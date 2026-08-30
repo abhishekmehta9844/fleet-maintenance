@@ -2,6 +2,7 @@ import { useState } from 'react';
 import VehicleList from './components/VehicleList';
 import VehicleForm from './components/VehicleForm';
 import BulkOdometerUpdate from './components/BulkOdometerUpdate';
+import FleetDashboard from './components/FleetDashboard';
 
 function App() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -16,6 +17,9 @@ function App() {
         <h1 className="text-3xl font-extrabold text-blue-900 tracking-tight mb-8">
           Fleet Maintenance System
         </h1>
+        
+        {/* ADD THE DASHBOARD HERE */}
+        <FleetDashboard refreshTrigger={refreshTrigger} />
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <VehicleForm onVehicleAdded={refreshData} />

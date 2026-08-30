@@ -162,3 +162,22 @@ def bulk_update_odometers(data: schemas.BulkOdometerUpdateRequest, db: Session =
             
     db.commit()
     return {"status": "success", "updated_count": updated_count}
+
+@app.get("/dashboard/metrics")
+def get_dashboard_metrics(db: Session = Depends(get_db)):
+    total_vehicles = db.query(models.Vehicle).count()
+    
+    # Count active vs completed tasks
+    pending_tasks = db.query(models.ServiceRecord).filter(
+        models.ServiceRecord.status.in_(["Due", "Booked", "In Service"])
+    ).count()
+    
+    completed_tasks = db.query(models.ServiceRecord).filter(
+        models.ServiceRecord.status == "Completed"
+    ).count()
+    
+    return {
+        "total_vehicles": total_vehicles,
+        "active_tasks": pending_tasks,
+        "completed_tasks": completed_tasks
+    }
