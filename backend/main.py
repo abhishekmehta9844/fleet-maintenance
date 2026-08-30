@@ -114,3 +114,15 @@ def assign_technician(record_id: UUID, assign_data: schemas.AssignmentCreate, db
     db.add(new_assignment)
     db.commit()
     return {"status": "Successfully assigned"}
+
+@app.put("/vehicles/bulk-odometer/")
+def bulk_update_odometers(data: schemas.BulkOdometerUpdateRequest, db: Session = Depends(get_db)):
+    updated_count = 0
+    for update in data.updates:
+        vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == update.id).first()
+        if vehicle and update.new_odometer >= vehicle.current_odometer:
+            vehicle.current_odometer = update.new_odometer
+            updated_count += 1
+            
+    db.commit()
+    return {"status": "success", "updated_count": updated_count}
