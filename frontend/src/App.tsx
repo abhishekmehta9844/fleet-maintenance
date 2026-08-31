@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import VehicleList from './components/VehicleList';
@@ -6,15 +6,27 @@ import VehicleForm from './components/VehicleForm';
 import BulkOdometerUpdate from './components/BulkOdometerUpdate';
 import FleetDashboard from './components/FleetDashboard';
 import ServiceRecordSearch from './components/ServiceRecordSearch';
+import AlertsPanel from './components/AlertsPanel';
+import { apiFetch } from './lib/api';
 
 function FleetApp() {
   const { user, loading, logout } = useAuth();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [activeTab, setActiveTab] = useState<'vehicles' | 'records'>('vehicles');
+  const [activeTab, setActiveTab] = useState<'vehicles' | 'records' | 'alerts'>('vehicles');
+  const [alertCount, setAlertCount] = useState(0);
 
   const refreshData = () => {
     setRefreshTrigger(prev => prev + 1);
   };
+
+  useEffect(() => {
+    if (user?.role === 'manager') {
+      apiFetch('/alerts/count')
+        .then(res => res.json())
+        .then(data => setAlertCount(data.count))
+        .catch(() => {});
+    }
+  }, [user, refreshTrigger]);
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading…</div>;
@@ -52,6 +64,19 @@ function FleetApp() {
           >
             Service Records
           </button>
+          {user.role === 'manager' && (
+            <button
+              onClick={() => setActiveTab('alerts')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'alerts' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+            >
+              Alerts
+              {alertCount > 0 && (
+                <span className="inline-flex items-center justify-center bg-red-600 text-white text-xs font-bold rounded-full h-5 min-w-[1.25rem] px-1">
+                  {alertCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
 
         {activeTab === 'vehicles' ? (
@@ -67,8 +92,10 @@ function FleetApp() {
 
             <VehicleList key={refreshTrigger} currentUser={user} />
           </>
-        ) : (
+        ) : activeTab === 'records' ? (
           <ServiceRecordSearch userRole={user.role} />
+        ) : (
+          <AlertsPanel onDismiss={refreshData} />
         )}
       </div>
     </div>

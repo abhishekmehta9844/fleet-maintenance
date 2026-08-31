@@ -72,6 +72,9 @@ def sync_due_record(db: Session, vehicle: models.Vehicle):
     if existing_open or not vehicle_is_due(vehicle):
         return
 
+    # A brand new due cycle is starting, so any earlier dismissal no longer applies.
+    vehicle.is_alert_dismissed = False
+
     new_record = models.ServiceRecord(
         vehicle_id=vehicle.id,
         status="Due",
@@ -93,6 +96,9 @@ def compute_is_overdue(db: Session, vehicle: models.Vehicle) -> bool:
         return False
     grace_deadline = due_record.created_at + timedelta(days=OVERDUE_GRACE_PERIOD_DAYS)
     return datetime.utcnow() > grace_deadline
+
+def should_show_alert(db: Session, vehicle: models.Vehicle) -> bool:
+    return compute_is_overdue(db, vehicle) and not vehicle.is_alert_dismissed
 
 
 @app.post("/auth/register", response_model=schemas.UserResponse)
@@ -143,7 +149,7 @@ def read_vehicles(skip: int = 0, limit: int = 100, archived: bool = False, db: S
     for vehicle in vehicles:
         if not archived:
             sync_due_record(db, vehicle)
-        vehicle.is_overdue = compute_is_overdue(db, vehicle)
+        vehicle.is_overdue = should_show_alert(db, vehicle)
     return vehicles
 
 @app.put("/vehicles/{vehicle_id}", response_model=schemas.VehicleResponse)
@@ -169,7 +175,7 @@ def update_vehicle(vehicle_id: UUID, updates: schemas.VehicleUpdate, db: Session
 
     db.commit()
     db.refresh(vehicle)
-    vehicle.is_overdue = compute_is_overdue(db, vehicle)
+    vehicle.is_overdue = should_show_alert(db, vehicle)
     return vehicle
 
 @app.put("/vehicles/{vehicle_id}/archive", response_model=schemas.VehicleResponse)
@@ -191,8 +197,40 @@ def restore_vehicle(vehicle_id: UUID, db: Session = Depends(get_db), current_use
     vehicle.is_archived = False
     db.commit()
     db.refresh(vehicle)
-    vehicle.is_overdue = compute_is_overdue(db, vehicle)
+    vehicle.is_overdue = should_show_alert(db, vehicle)
     return vehicle
+
+@app.put("/vehicles/{vehicle_id}/dismiss-alert", response_model=schemas.VehicleResponse)
+def dismiss_alert(vehicle_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == vehicle_id).first()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    vehicle.is_alert_dismissed = True
+    db.commit()
+    db.refresh(vehicle)
+    vehicle.is_overdue = False
+    return vehicle
+
+@app.get("/alerts/", response_model=List[schemas.VehicleResponse])
+def get_alerts(db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    active_vehicles = db.query(models.Vehicle).filter(models.Vehicle.is_archived == False).all()
+    alerts = []
+    for vehicle in active_vehicles:
+        sync_due_record(db, vehicle)
+        vehicle.is_overdue = should_show_alert(db, vehicle)
+        if vehicle.is_overdue:
+            alerts.append(vehicle)
+    return alerts
+
+@app.get("/alerts/count")
+def get_alert_count(db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    active_vehicles = db.query(models.Vehicle).filter(models.Vehicle.is_archived == False).all()
+    count = 0
+    for vehicle in active_vehicles:
+        sync_due_record(db, vehicle)
+        if should_show_alert(db, vehicle):
+            count += 1
+    return {"count": count}
 
 @app.post("/vehicles/bulk-odometer-csv/")
 async def bulk_update_odometers_csv(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
@@ -533,7 +571,7 @@ def get_dashboard_metrics(db: Session = Depends(get_db), current_user: models.Us
         .filter(models.ServiceRecord.completed_at >= one_week_ago)
         .count()
     )
-    vehicles_overdue = sum(1 for v in active_vehicles if compute_is_overdue(db, v))
+    vehicles_overdue = sum(1 for v in active_vehicles if should_show_alert(db, v))
 
     status_rows = (
         db.query(models.ServiceRecord.status, func.count(models.ServiceRecord.id))
