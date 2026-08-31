@@ -75,14 +75,6 @@ class UserResponse(BaseModel):
 class AssignmentCreate(BaseModel):
     technician_id: UUID
 
-# --- Bulk Update Schemas ---
-class OdometerUpdate(BaseModel):
-    id: UUID
-    new_odometer: int
-
-class BulkOdometerUpdateRequest(BaseModel):
-    updates: List[OdometerUpdate]
-
 # --- Auth Schemas ---
 class UserCreate(BaseModel):
     email: str

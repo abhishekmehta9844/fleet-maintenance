@@ -67,6 +67,23 @@ export default function ServiceRecordSearch({ userRole }: { userRole: 'manager' 
       .catch(err => console.error(err));
   }, [search, vehicleFilter, statusFilter, technicianFilter, sortBy, sortOrder, page]);
 
+  const handleExport = async () => {
+    const response = await apiFetch('/service-records/export-csv/');
+    if (!response.ok) {
+      alert('Could not export service history.');
+      return;
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'service_history.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Due': return 'bg-yellow-100 text-yellow-800';
@@ -81,7 +98,14 @@ export default function ServiceRecordSearch({ userRole }: { userRole: 'manager' 
 
   return (
     <div className="mt-8">
-      <h2 className="text-2xl font-semibold mb-4 text-gray-800">Service Records</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-semibold text-gray-800">Service Records</h2>
+        {userRole === 'manager' && (
+          <button onClick={handleExport} className="text-sm bg-gray-800 text-white px-3 py-1.5 rounded-md hover:bg-gray-900 transition">
+            Export CSV
+          </button>
+        )}
+      </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-wrap gap-3 items-center">
         <input

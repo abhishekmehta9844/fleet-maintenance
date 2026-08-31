@@ -1,5 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Query
+import csv
+import io
+from fastapi import FastAPI, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -188,6 +192,103 @@ def restore_vehicle(vehicle_id: UUID, db: Session = Depends(get_db), current_use
     vehicle.is_overdue = compute_is_overdue(db, vehicle)
     return vehicle
 
+@app.post("/vehicles/bulk-odometer-csv/")
+async def bulk_update_odometers_csv(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a .csv file.")
+
+    raw = await file.read()
+    try:
+        decoded = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Could not read the file as UTF-8 text.")
+
+    reader = csv.DictReader(io.StringIO(decoded))
+    required_columns = {"registration_number", "odometer"}
+    if not reader.fieldnames or not required_columns.issubset(set(reader.fieldnames)):
+        raise HTTPException(status_code=400, detail="CSV must have 'registration_number' and 'odometer' columns.")
+
+    results = []
+    vehicle_cache: dict = {}
+
+    for row_number, row in enumerate(reader, start=2):
+        reg = (row.get("registration_number") or "").strip()
+        raw_odometer = (row.get("odometer") or "").strip()
+
+        if not reg:
+            results.append({"row": row_number, "registration_number": reg, "status": "rejected", "reason": "Missing registration number."})
+            continue
+
+        try:
+            new_odometer = int(raw_odometer)
+        except (TypeError, ValueError):
+            results.append({"row": row_number, "registration_number": reg, "status": "rejected", "reason": f"'{raw_odometer}' is not a valid whole-number odometer reading."})
+            continue
+
+        vehicle = vehicle_cache.get(reg)
+        if vehicle is None:
+            vehicle = db.query(models.Vehicle).filter(models.Vehicle.registration_number == reg).first()
+            if vehicle:
+                vehicle_cache[reg] = vehicle
+
+        if not vehicle:
+            results.append({"row": row_number, "registration_number": reg, "status": "rejected", "reason": "No vehicle found with this registration number."})
+            continue
+
+        if new_odometer < vehicle.current_odometer:
+            results.append({
+                "row": row_number,
+                "registration_number": reg,
+                "status": "rejected",
+                "reason": f"New reading ({new_odometer}) is lower than the current recorded reading ({vehicle.current_odometer}).",
+            })
+            continue
+
+        old_odometer = vehicle.current_odometer
+        vehicle.current_odometer = new_odometer
+        log_audit(
+            db=db,
+            action_type="ODOMETER_UPDATE",
+            old_value=f"Vehicle {vehicle.id}: {old_odometer}",
+            new_value=str(new_odometer),
+            user_id=current_user.id,
+        )
+        results.append({"row": row_number, "registration_number": reg, "status": "success", "reason": None})
+
+    db.commit()
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+    return {
+        "total_rows": len(results),
+        "success_count": success_count,
+        "rejected_count": len(results) - success_count,
+        "results": results,
+    }
+
+@app.get("/service-records/export-csv/")
+def export_service_records_csv(db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    records = db.query(models.ServiceRecord).order_by(models.ServiceRecord.created_at.desc()).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["vehicle_registration_number", "status", "description", "scheduled_date", "created_at", "completed_at"])
+    for record in records:
+        writer.writerow([
+            record.vehicle.registration_number if record.vehicle else "",
+            record.status,
+            record.description or "",
+            record.scheduled_date.isoformat() if record.scheduled_date else "",
+            record.created_at.isoformat() if record.created_at else "",
+            record.completed_at.isoformat() if record.completed_at else "",
+        ])
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=service_history.csv"},
+    )
+
 @app.post("/service-records/", response_model=schemas.ServiceRecordResponse)
 def create_service_record(record: schemas.ServiceRecordCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
     vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == record.vehicle_id).first()
@@ -340,41 +441,70 @@ def assign_technician(record_id: UUID, assign_data: schemas.AssignmentCreate, db
     db.commit()
     return {"status": "Successfully assigned"}
 
-@app.put("/vehicles/bulk-odometer/")
-def bulk_update_odometers(data: schemas.BulkOdometerUpdateRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
-    updated_count = 0
-    for update in data.updates:
-        vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == update.id).first()
-        if vehicle and update.new_odometer >= vehicle.current_odometer:
-            old_odometer = vehicle.current_odometer
-            vehicle.current_odometer = update.new_odometer
-
-            log_audit(
-                db=db,
-                action_type="ODOMETER_UPDATE",
-                old_value=f"Vehicle {update.id}: {old_odometer}",
-                new_value=str(update.new_odometer),
-                user_id=current_user.id,
-            )
-            updated_count += 1
-
-    db.commit()
-    return {"status": "success", "updated_count": updated_count}
-
 @app.get("/dashboard/metrics")
 def get_dashboard_metrics(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    total_vehicles = db.query(models.Vehicle).count()
+    now = datetime.utcnow()
+    one_week_ago = now - timedelta(days=7)
 
-    pending_tasks = db.query(models.ServiceRecord).filter(
-        models.ServiceRecord.status.in_(["Due", "Booked", "In Service"])
-    ).count()
+    active_vehicles = db.query(models.Vehicle).filter(models.Vehicle.is_archived == False).all()
+    for vehicle in active_vehicles:
+        sync_due_record(db, vehicle)
 
-    completed_tasks = db.query(models.ServiceRecord).filter(
-        models.ServiceRecord.status == "Completed"
-    ).count()
+    vehicles_due = (
+        db.query(models.ServiceRecord.vehicle_id)
+        .filter(models.ServiceRecord.status == "Due")
+        .distinct()
+        .count()
+    )
+    vehicles_in_service = (
+        db.query(models.ServiceRecord.vehicle_id)
+        .filter(models.ServiceRecord.status == "In Service")
+        .distinct()
+        .count()
+    )
+    completed_this_week = (
+        db.query(models.ServiceRecord)
+        .filter(models.ServiceRecord.status == "Completed")
+        .filter(models.ServiceRecord.completed_at >= one_week_ago)
+        .count()
+    )
+    vehicles_overdue = sum(1 for v in active_vehicles if compute_is_overdue(db, v))
+
+    status_rows = (
+        db.query(models.ServiceRecord.status, func.count(models.ServiceRecord.id))
+        .group_by(models.ServiceRecord.status)
+        .all()
+    )
+    status_breakdown = {status_name: count for status_name, count in status_rows}
+
+    technician_rows = (
+        db.query(models.User.email, func.count(models.Assignment.service_record_id))
+        .join(models.Assignment, models.Assignment.technician_id == models.User.id)
+        .filter(models.User.role == "technician")
+        .group_by(models.User.email)
+        .all()
+    )
+    technician_breakdown = [{"technician": email, "count": count} for email, count in technician_rows]
+
+    weekly_completions = []
+    for week_index in range(7, -1, -1):
+        week_start = now - timedelta(days=7 * (week_index + 1))
+        week_end = now - timedelta(days=7 * week_index)
+        count = (
+            db.query(models.ServiceRecord)
+            .filter(models.ServiceRecord.status == "Completed")
+            .filter(models.ServiceRecord.completed_at >= week_start)
+            .filter(models.ServiceRecord.completed_at < week_end)
+            .count()
+        )
+        weekly_completions.append({"week_start": week_start.date().isoformat(), "completed": count})
 
     return {
-        "total_vehicles": total_vehicles,
-        "active_tasks": pending_tasks,
-        "completed_tasks": completed_tasks,
+        "vehicles_due": vehicles_due,
+        "vehicles_in_service": vehicles_in_service,
+        "completed_this_week": completed_this_week,
+        "vehicles_overdue": vehicles_overdue,
+        "status_breakdown": status_breakdown,
+        "technician_breakdown": technician_breakdown,
+        "weekly_completions": weekly_completions,
     }

@@ -1,82 +1,107 @@
-import { useEffect, useState } from 'react';
-import { apiFetch } from '../lib/api';
+import { useState } from 'react';
 
-interface Vehicle {
-  id: string;
+interface RowResult {
+  row: number;
   registration_number: string;
-  current_odometer: number;
+  status: 'success' | 'rejected';
+  reason: string | null;
+}
+
+interface UploadSummary {
+  total_rows: number;
+  success_count: number;
+  rejected_count: number;
+  results: RowResult[];
 }
 
 export default function BulkOdometerUpdate({ onUpdateComplete }: { onUpdateComplete: () => void }) {
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [odometerValues, setOdometerValues] = useState<Record<string, number>>({});
+  const [file, setFile] = useState<File | null>(null);
+  const [summary, setSummary] = useState<UploadSummary | null>(null);
+  const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    apiFetch('/vehicles/')
-      .then(res => res.json())
-      .then(data => {
-        setVehicles(data);
-        const initialValues: Record<string, number> = {};
-        data.forEach((v: Vehicle) => {
-          initialValues[v.id] = v.current_odometer;
-        });
-        setOdometerValues(initialValues);
-      })
-      .catch(err => console.error(err));
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!file) return;
 
-    const updates = vehicles
-      .filter(v => odometerValues[v.id] > v.current_odometer)
-      .map(v => ({
-        id: v.id,
-        new_odometer: odometerValues[v.id]
-      }));
+    setUploading(true);
+    setSummary(null);
 
-    if (updates.length === 0) {
-      alert("No new odometer readings to update.");
-      return;
-    }
+    const formData = new FormData();
+    formData.append('file', file);
 
-    const response = await apiFetch('/vehicles/bulk-odometer/', {
-      method: 'PUT',
-      body: JSON.stringify({ updates }),
-    });
+    const token = localStorage.getItem('fleet_token');
+    try {
+      const response = await fetch('http://localhost:8000/vehicles/bulk-odometer-csv/', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
 
-    if (response.ok) {
-      const result = await response.json();
-      alert(`Successfully updated ${result.updated_count} vehicles!`);
-      onUpdateComplete();
+      if (response.ok) {
+        const data: UploadSummary = await response.json();
+        setSummary(data);
+        onUpdateComplete();
+      } else {
+        const error = await response.json();
+        alert(error.detail || 'Could not process this file.');
+      }
+    } finally {
+      setUploading(false);
     }
   };
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-8">
-      <h2 className="text-xl font-semibold mb-4 text-gray-800">Bulk Odometer Update</h2>
-      <form onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 gap-3 mb-4 max-h-48 overflow-y-auto pr-2">
-          {vehicles.map(vehicle => (
-            <div key={vehicle.id} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
-              <span className="font-medium text-gray-700">{vehicle.registration_number}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400">Current: {vehicle.current_odometer}</span>
-                <input
-                  type="number"
-                  min={vehicle.current_odometer}
-                  value={odometerValues[vehicle.id] || ''}
-                  onChange={e => setOdometerValues({...odometerValues, [vehicle.id]: parseInt(e.target.value) || 0})}
-                  className="w-28 rounded-md border-gray-300 border px-2 py-1 text-sm text-right"
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-        <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition w-full">
-          Save All Updates
+      <h2 className="text-xl font-semibold mb-2 text-gray-800">Bulk Odometer Update (CSV)</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        CSV must have two columns: <code className="bg-gray-100 px-1 rounded">registration_number</code> and <code className="bg-gray-100 px-1 rounded">odometer</code>.
+      </p>
+
+      <form onSubmit={handleUpload} className="flex items-center gap-3 mb-4">
+        <input
+          type="file"
+          accept=".csv"
+          onChange={e => setFile(e.target.files?.[0] || null)}
+          className="text-sm"
+        />
+        <button
+          type="submit"
+          disabled={!file || uploading}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-sm"
+        >
+          {uploading ? 'Uploading...' : 'Upload CSV'}
         </button>
       </form>
+
+      {summary && (
+        <div>
+          <p className="text-sm font-medium text-gray-700 mb-2">
+            {summary.success_count} succeeded, {summary.rejected_count} rejected out of {summary.total_rows} rows.
+          </p>
+          <div className="max-h-56 overflow-y-auto border border-gray-100 rounded-md">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-left text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-1">Row</th>
+                  <th className="px-3 py-1">Registration</th>
+                  <th className="px-3 py-1">Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.results.map(r => (
+                  <tr key={r.row} className="border-t border-gray-100">
+                    <td className="px-3 py-1">{r.row}</td>
+                    <td className="px-3 py-1">{r.registration_number}</td>
+                    <td className={`px-3 py-1 ${r.status === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+                      {r.status === 'success' ? 'Updated' : r.reason}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

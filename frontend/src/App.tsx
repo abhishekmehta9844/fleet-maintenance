@@ -61,7 +61,7 @@ function FleetApp() {
             {user.role === 'manager' && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <VehicleForm onVehicleAdded={refreshData} />
-                <BulkOdometerUpdate key={`bulk-${refreshTrigger}`} onUpdateComplete={refreshData} />
+                <BulkOdometerUpdate onUpdateComplete={refreshData} />
               </div>
             )}
 
