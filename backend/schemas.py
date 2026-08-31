@@ -3,6 +3,18 @@ from datetime import datetime
 from uuid import UUID
 from typing import Optional, List
 
+# --- User & Assignment Schemas ---
+class UserResponse(BaseModel):
+    id: UUID
+    email: str
+    role: str
+
+    class Config:
+        from_attributes = True
+
+class AssignmentCreate(BaseModel):
+    technician_id: UUID
+
 # --- Vehicle Schemas ---
 class VehicleBase(BaseModel):
     registration_number: str
@@ -54,6 +66,7 @@ class ServiceRecordResponse(ServiceRecordBase):
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None
+    technicians: List[UserResponse] = []
 
     class Config:
         from_attributes = True
@@ -62,18 +75,20 @@ class ServiceRecordListResponse(BaseModel):
     total: int
     items: List[ServiceRecordResponse]
 
+# --- Timeline & Notes Schemas ---
+class NoteCreate(BaseModel):
+    text: str
 
-# --- User & Assignment Schemas ---
-class UserResponse(BaseModel):
+class TimelineEntryResponse(BaseModel):
     id: UUID
-    email: str
-    role: str
+    action_type: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    actor_email: Optional[str] = None
+    created_at: datetime
 
     class Config:
         from_attributes = True
-
-class AssignmentCreate(BaseModel):
-    technician_id: UUID
 
 # --- Auth Schemas ---
 class UserCreate(BaseModel):

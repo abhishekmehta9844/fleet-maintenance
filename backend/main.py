@@ -78,6 +78,8 @@ def sync_due_record(db: Session, vehicle: models.Vehicle):
         description="Scheduled maintenance — interval reached",
     )
     db.add(new_record)
+    db.flush()
+    log_audit(db=db, action_type="CREATED", new_value="Auto-generated: interval reached", service_record_id=new_record.id, user_id=None)
     db.commit()
 
 def compute_is_overdue(db: Session, vehicle: models.Vehicle) -> bool:
@@ -297,6 +299,8 @@ def create_service_record(record: schemas.ServiceRecordCreate, db: Session = Dep
 
     new_record = models.ServiceRecord(**record.model_dump())
     db.add(new_record)
+    db.flush()
+    log_audit(db=db, action_type="CREATED", new_value=new_record.description, service_record_id=new_record.id, user_id=current_user.id)
     db.commit()
     db.refresh(new_record)
     new_record.vehicle_registration_number = vehicle.registration_number
@@ -424,6 +428,10 @@ def get_technicians(db: Session = Depends(get_db), current_user: models.User = D
 
 @app.post("/service-records/{record_id}/assign")
 def assign_technician(record_id: UUID, assign_data: schemas.AssignmentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    technician = db.query(models.User).filter(models.User.id == assign_data.technician_id, models.User.role == "technician").first()
+    if not technician:
+        raise HTTPException(status_code=404, detail="Technician not found.")
+
     existing = db.query(models.Assignment).filter_by(
         service_record_id=record_id,
         technician_id=assign_data.technician_id,
@@ -437,9 +445,66 @@ def assign_technician(record_id: UUID, assign_data: schemas.AssignmentCreate, db
         technician_id=assign_data.technician_id,
     )
     db.add(new_assignment)
-    log_audit(db=db, action_type="ASSIGNED", new_value=str(assign_data.technician_id), service_record_id=record_id, user_id=current_user.id)
+    log_audit(db=db, action_type="ASSIGNED", new_value=technician.email, service_record_id=record_id, user_id=current_user.id)
     db.commit()
     return {"status": "Successfully assigned"}
+
+@app.delete("/service-records/{record_id}/assign/{technician_id}")
+def unassign_technician(record_id: UUID, technician_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_role("manager"))):
+    assignment = db.query(models.Assignment).filter_by(service_record_id=record_id, technician_id=technician_id).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="This technician is not assigned to this service record.")
+
+    technician = db.query(models.User).filter(models.User.id == technician_id).first()
+    db.delete(assignment)
+    log_audit(
+        db=db,
+        action_type="UNASSIGNED",
+        old_value=technician.email if technician else str(technician_id),
+        service_record_id=record_id,
+        user_id=current_user.id,
+    )
+    db.commit()
+    return {"status": "Technician unassigned"}
+
+@app.post("/service-records/{record_id}/notes")
+def add_note(record_id: UUID, note: schemas.NoteCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    record = db.query(models.ServiceRecord).filter(models.ServiceRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Service record not found")
+
+    if current_user.role == "technician":
+        assigned = db.query(models.Assignment).filter_by(service_record_id=record_id, technician_id=current_user.id).first()
+        if not assigned:
+            raise HTTPException(status_code=403, detail="You are not assigned to this service record")
+
+    if not note.text.strip():
+        raise HTTPException(status_code=400, detail="Note text cannot be empty.")
+
+    log_audit(db=db, action_type="NOTE", new_value=note.text.strip(), service_record_id=record_id, user_id=current_user.id)
+    db.commit()
+    return {"status": "Note added"}
+
+@app.get("/service-records/{record_id}/timeline", response_model=List[schemas.TimelineEntryResponse])
+def get_service_record_timeline(record_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    record = db.query(models.ServiceRecord).filter(models.ServiceRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Service record not found")
+
+    if current_user.role == "technician":
+        assigned = db.query(models.Assignment).filter_by(service_record_id=record_id, technician_id=current_user.id).first()
+        if not assigned:
+            raise HTTPException(status_code=403, detail="You are not assigned to this service record")
+
+    entries = (
+        db.query(models.AuditLog)
+        .filter(models.AuditLog.service_record_id == record_id)
+        .order_by(models.AuditLog.created_at.asc())
+        .all()
+    )
+    for entry in entries:
+        entry.actor_email = entry.user.email if entry.user else "System"
+    return entries
 
 @app.get("/dashboard/metrics")
 def get_dashboard_metrics(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):

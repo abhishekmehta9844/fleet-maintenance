@@ -59,3 +59,5 @@ class AuditLog(Base):
     old_value = Column(Text, nullable=True)
     new_value = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")

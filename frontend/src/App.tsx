@@ -65,7 +65,7 @@ function FleetApp() {
               </div>
             )}
 
-            <VehicleList key={refreshTrigger} userRole={user.role} />
+            <VehicleList key={refreshTrigger} currentUser={user} />
           </>
         ) : (
           <ServiceRecordSearch userRole={user.role} />

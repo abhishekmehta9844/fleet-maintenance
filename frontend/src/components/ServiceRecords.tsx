@@ -1,15 +1,31 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
+interface Technician {
+  id: string;
+  email: string;
+}
+
 interface ServiceRecord {
   id: string;
   status: string;
   description: string;
+  technicians: Technician[];
 }
 
-interface Technician {
+interface CurrentUser {
   id: string;
   email: string;
+  role: 'manager' | 'technician';
+}
+
+interface TimelineEntry {
+  id: string;
+  action_type: string;
+  old_value: string | null;
+  new_value: string | null;
+  actor_email: string | null;
+  created_at: string;
 }
 
 const NEXT_STATUS: Record<string, string> = {
@@ -24,11 +40,97 @@ const NEXT_ACTION_LABEL: Record<string, string> = {
   'In Service': 'Mark Completed',
 };
 
-export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: string, userRole: 'manager' | 'technician' }) {
+function Timeline({ recordId, canAddNote, onNoteAdded }: { recordId: string; canAddNote: boolean; onNoteAdded: () => void }) {
+  const [entries, setEntries] = useState<TimelineEntry[]>([]);
+  const [noteText, setNoteText] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const fetchTimeline = () => {
+    apiFetch(`/service-records/${recordId}/timeline`)
+      .then(res => res.json())
+      .then(data => setEntries(data))
+      .catch(err => console.error(err))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchTimeline();
+  }, [recordId]);
+
+  const handleAddNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!noteText.trim()) return;
+    const response = await apiFetch(`/service-records/${recordId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ text: noteText }),
+    });
+    if (response.ok) {
+      setNoteText('');
+      fetchTimeline();
+      onNoteAdded();
+    }
+  };
+
+  const describeEntry = (entry: TimelineEntry) => {
+    switch (entry.action_type) {
+      case 'CREATED':
+        return 'Record created';
+      case 'STATUS_CHANGE':
+        return `Status changed: ${entry.old_value} → ${entry.new_value}`;
+      case 'ASSIGNED':
+        return `Assigned to ${entry.new_value}`;
+      case 'UNASSIGNED':
+        return `Unassigned from ${entry.old_value}`;
+      case 'NOTE':
+        return `Note: ${entry.new_value}`;
+      default:
+        return entry.action_type;
+    }
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-dashed border-gray-200">
+      {loading ? (
+        <p className="text-xs text-gray-400">Loading timeline...</p>
+      ) : entries.length === 0 ? (
+        <p className="text-xs text-gray-400">No timeline entries yet.</p>
+      ) : (
+        <ul className="space-y-1 max-h-40 overflow-y-auto pr-1">
+          {entries.map(entry => (
+            <li key={entry.id} className="text-xs text-gray-600">
+              <span className="text-gray-400">{new Date(entry.created_at).toLocaleString()}</span>
+              {' — '}
+              {describeEntry(entry)}
+              {entry.actor_email && <span className="text-gray-400"> ({entry.actor_email.split('@')[0]})</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canAddNote && (
+        <form onSubmit={handleAddNote} className="flex gap-2 mt-2">
+          <input
+            type="text"
+            placeholder="Add a note..."
+            value={noteText}
+            onChange={e => setNoteText(e.target.value)}
+            className="flex-1 text-xs rounded-md border-gray-300 border px-2 py-1"
+          />
+          <button type="submit" className="text-xs bg-gray-800 text-white px-2 py-1 rounded-md hover:bg-gray-900 transition">
+            Add
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+export default function ServiceRecords({ vehicleId, currentUser }: { vehicleId: string; currentUser: CurrentUser }) {
   const [records, setRecords] = useState<ServiceRecord[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [description, setDescription] = useState('');
   const [bookingDates, setBookingDates] = useState<Record<string, string>>({});
+  const [timelineOpenId, setTimelineOpenId] = useState<string | null>(null);
 
   const fetchRecords = () => {
     apiFetch(`/vehicles/${vehicleId}/service-records/`)
@@ -95,8 +197,19 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
     });
 
     if (response.ok) {
-      const result = await response.json();
-      alert(result.status);
+      fetchRecords();
+    } else {
+      const error = await response.json();
+      alert(error.detail || 'Could not assign this technician.');
+    }
+  };
+
+  const handleUnassign = async (recordId: string, technicianId: string) => {
+    const response = await apiFetch(`/service-records/${recordId}/assign/${technicianId}`, {
+      method: 'DELETE',
+    });
+    if (response.ok) {
+      fetchRecords();
     }
   };
 
@@ -132,6 +245,10 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
         {records.length === 0 ? <li className="text-xs text-gray-500">No records found.</li> : null}
         {records.map(record => {
           const nextStatus = NEXT_STATUS[record.status];
+          const isAssignedTechnician = currentUser.role === 'technician' && record.technicians.some(t => t.id === currentUser.id);
+          const canAddNote = currentUser.role === 'manager' || isAssignedTechnician;
+          const showTimeline = timelineOpenId === record.id;
+
           return (
             <li key={record.id} className="text-sm flex flex-col gap-2 bg-gray-50 p-3 rounded border border-gray-100 shadow-sm">
               <div className="flex justify-between items-center">
@@ -140,6 +257,19 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
                   {record.status}
                 </span>
               </div>
+
+              {record.technicians.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {record.technicians.map(t => (
+                    <span key={t.id} className="text-xs bg-white border border-gray-200 rounded-full px-2 py-0.5 flex items-center gap-1">
+                      {t.email.split('@')[0]}
+                      {currentUser.role === 'manager' && (
+                        <button onClick={() => handleUnassign(record.id, t.id)} className="text-gray-400 hover:text-red-600">×</button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               {nextStatus && (
                 <div className="flex items-center gap-2 border-t border-gray-200 pt-2 mt-1">
@@ -161,7 +291,7 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
                 </div>
               )}
 
-              {userRole === 'manager' && (
+              {currentUser.role === 'manager' && (
                 <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-1">
                   <span className="text-xs text-gray-500">Assign Technician:</span>
                   <select
@@ -178,6 +308,19 @@ export default function ServiceRecords({ vehicleId, userRole }: { vehicleId: str
                     ))}
                   </select>
                 </div>
+              )}
+
+              <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-1">
+                <button
+                  onClick={() => setTimelineOpenId(showTimeline ? null : record.id)}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  {showTimeline ? 'Hide timeline' : 'View timeline'}
+                </button>
+              </div>
+
+              {showTimeline && (
+                <Timeline recordId={record.id} canAddNote={canAddNote} onNoteAdded={fetchRecords} />
               )}
             </li>
           );

@@ -23,7 +23,13 @@ interface EditForm {
   service_interval_miles: number;
 }
 
-export default function VehicleList({ userRole }: { userRole: 'manager' | 'technician' }) {
+interface CurrentUser {
+  id: string;
+  email: string;
+  role: 'manager' | 'technician';
+}
+
+export default function VehicleList({ currentUser }: { currentUser: CurrentUser }) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -177,7 +183,7 @@ export default function VehicleList({ userRole }: { userRole: 'manager' | 'techn
                   <span className="text-xs text-gray-500">{vehicle.service_interval_miles.toLocaleString()} mi / {vehicle.service_interval_months} mo</span>
                 </div>
 
-                {userRole === 'manager' && (
+                {currentUser.role === 'manager' && (
                   <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
                     {vehicle.is_archived ? (
                       <button onClick={() => handleRestore(vehicle.id)} className="text-xs bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 transition">
@@ -196,7 +202,7 @@ export default function VehicleList({ userRole }: { userRole: 'manager' | 'techn
                   </div>
                 )}
 
-                {expandedId === vehicle.id && <ServiceRecords vehicleId={vehicle.id} userRole={userRole}/>}
+                {expandedId === vehicle.id && <ServiceRecords vehicleId={vehicle.id} currentUser={currentUser} />}
               </>
             )}
           </div>
