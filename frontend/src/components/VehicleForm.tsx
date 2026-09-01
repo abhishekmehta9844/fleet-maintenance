@@ -55,7 +55,20 @@ export default function VehicleForm({ onVehicleAdded }: { onVehicleAdded: () => 
           <label className="block text-sm font-medium text-gray-700">Current Odometer</label>
           <input type="number" required className="mt-1 block w-full rounded-md border-gray-300 border p-2"
             value={formData.current_odometer}
-            onChange={e => setFormData({...formData, current_odometer: parseInt(e.target.value)})} />
+            onChange={e => setFormData({...formData, current_odometer: parseInt(e.target.value) || 0})} />
+        </div>
+        <div />
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Service Interval (months)</label>
+          <input type="number" required min={0} className="mt-1 block w-full rounded-md border-gray-300 border p-2"
+            value={formData.service_interval_months}
+            onChange={e => setFormData({...formData, service_interval_months: parseInt(e.target.value) || 0})} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Service Interval (miles)</label>
+          <input type="number" required min={0} className="mt-1 block w-full rounded-md border-gray-300 border p-2"
+            value={formData.service_interval_miles}
+            onChange={e => setFormData({...formData, service_interval_miles: parseInt(e.target.value) || 0})} />
         </div>
         <div className="md:col-span-2 pt-4">
           <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition">
