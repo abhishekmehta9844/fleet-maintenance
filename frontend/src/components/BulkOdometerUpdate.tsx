@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { API_BASE } from '../lib/api';
 
 interface RowResult {
   row: number;
@@ -31,7 +32,7 @@ export default function BulkOdometerUpdate({ onUpdateComplete }: { onUpdateCompl
 
     const token = localStorage.getItem('fleet_token');
     try {
-      const response = await fetch('http://localhost:8000/vehicles/bulk-odometer-csv/', {
+      const response = await fetch(`${API_BASE}/vehicles/bulk-odometer-csv/`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
