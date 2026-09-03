@@ -1,4 +1,5 @@
-const API_BASE = 'http://localhost:8000';
+const env = (import.meta as any).env || {};
+export const API_BASE = env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export function getToken(): string | null {
   return localStorage.getItem('fleet_token');
