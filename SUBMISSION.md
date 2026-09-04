@@ -3,66 +3,80 @@
 ## Links
 
 - **GitHub repository:** https://github.com/abhishekmehta9844/fleet-maintenance
-- **Live application:**  https://fleet-maintenance-seven.vercel.app
-
+- **Live application:** https://fleet-maintenance-seven.vercel.app
 
 ## Notes for the reviewer
 
-The backend is hosted on Render's free tier, which sleeps after inactivity. The first request after
-it's been idle can take 30–60 seconds to wake up — if the app looks broken on first load, wait a
-minute and refresh before assuming something's wrong.
+The backend is hosted on Render's free tier, which spins down after inactivity. The first request
+after an idle period can take 30–60 seconds to wake up — if the login screen appears but nothing
+happens on sign-in, wait a minute and try again before assuming something is broken. This is
+expected behaviour on the free tier and is noted here so a slow first load is not read as a
+broken deployment.
 
-<-- Add anything else here you think a reviewer should know before clicking the link — e.g. any
-known rough edges, or anything you ran out of time to polish. -->
+The application is seeded with demo data across six vehicles in various states — some due, some
+with completed service records, and one that has gone through the full lifecycle (Due → Booked →
+In Service → Completed) to populate the dashboard chart and technician breakdown.
 
 ## Demo credentials
 
 | Role | Email | Password |
 |------|-------|----------|
-| Manager | manager@fleet.com | pass123 |
+| Fleet Manager | manager@fleet.com | pass123 |
 | Technician | tech@fleet.com | pass123 |
-
 
 ## Stack
 
-| Layer    | What you used                                                   | Why |
-|----------|-----------------------------------------------------------------|-----|
-| Frontend | React + Vite + TypeScript + Tailwind CSS                        | Fast dev server, type safety, utility-first styling for quick iteration |
-| Backend  | FastAPI + SQLAlchemy + PyJWT + bcrypt                           | Async-friendly, automatic OpenAPI docs at /docs, lightweight ORM, no heavier framework needed for this scope |
-| Database | PostgreSQL (Supabase, pooled connection) in production; SQLite locally | Relational model (vehicles → service records → many-to-many technician assignments, foreign-key-backed audit log) fits a relational database much better than a document store; Supabase gives a free managed Postgres instance |
-| Hosting  | Render (backend) + Vercel (frontend) + Supabase (database)      | Matches the brief's suggested free-tier combination; deployed in that order so each service had what it needed from the one before it |
-
+| Layer | What you used | Why |
+|-------|---------------|-----|
+| Frontend | React + TypeScript + Vite + Tailwind CSS | Fast build times, type safety across all API responses and component props, utility-first styling that keeps the component and its styles in one place |
+| Backend | FastAPI + SQLAlchemy + PyJWT + bcrypt | Automatic request validation via Pydantic, built-in interactive docs at /docs, dependency injection for auth and database sessions, and a lightweight ORM that maps cleanly onto a relational schema |
+| Database | PostgreSQL via Supabase (production), SQLite locally | The data is fundamentally relational — vehicles to service records (one-to-many), technicians to records (many-to-many), and a foreign-key-backed audit trail. Supabase provides a free managed Postgres instance with a connection pooler needed specifically because Render's network doesn't support outbound IPv6 |
+| Hosting | Render (backend) + Vercel (frontend) + Supabase (database) | Deployed in that order — database first, then backend (which needs the connection string), then frontend (which needs the backend's public URL). Matches the brief's suggested free-tier combination |
 
 ## Goal checklist
 
 | # | Goal | Status | Notes |
 |---|------|--------|-------|
-| 1 | Accounts and roles | Done | JWT auth, bcrypt-hashed passwords, manager/technician roles; every permission check enforced server-side via a `require_role` dependency, not hidden in the UI |
-| 2 | Vehicles | Done | Create, edit, archive, restore; archiving hides a vehicle from the default view without deleting its service history |
-| 3 | Service records | Done | Created by managers; description editable by whoever's assigned; assigned technicians shown on each record; vehicle history visible |
-| 4 | Service lifecycle with rules | Done | Due → Booked → In Service → Completed enforced server-side; any other transition rejected with a specific reason; booking requires a scheduled date and an assigned technician; completing resets both interval counters; auto-generated "Due" records with a grace-period overdue calculation |
-| 5 | Assignment | Done | Multiple technicians per record, manager-only add/remove; technicians see all their assigned records across every vehicle |
-| 6 | Finding service records | Done | Server-side text search, filters (vehicle/status/technician), sort (scheduled date/status/last updated), and real pagination with a total match count |
-| 7 | Bulk odometer updates + export | Done | CSV upload with a per-row success/reject report and reasons; valid rows apply even when others in the same file fail; separate CSV export of full service history |
-| 8 | Dashboard | Done | Due/in-service/completed-this-week/overdue headline numbers, breakdowns by status and technician, 8-week completed-per-week chart |
-| 9 | Immutable timeline | Done | Every status change, assignment/unassignment, and note is logged and shown per record, nothing editable or deletable after the fact — note: this logging was added partway through the build, so records/actions from earlier sessions won't have a full timeline |
-| 10 | Overdue alerts | Done | Alerts area with a dismiss action and a live nav badge; dismissal resets automatically when the vehicle enters its next due cycle, so the alert genuinely returns rather than staying dismissed forever |
-
+| 1 | Accounts and roles | Done | JWT auth with bcrypt-hashed passwords. Every permission check runs server-side via a require_role dependency — a technician cannot perform a manager action even by sending the API request directly |
+| 2 | Vehicles | Done | Create (with both service intervals), edit, archive, restore. Archiving flips a boolean flag — service history is fully preserved and retrievable via the "Show archived" toggle |
+| 3 | Service records | Done | Created by managers only. Description editable by whoever is assigned. Assigned technicians shown as chips on each record. Full service history visible per vehicle |
+| 4 | Service lifecycle with rules | Done | Due → Booked → In Service → Completed enforced server-side. Any other transition returns a 400 with the specific reason. Booking requires a scheduled date and at least one assigned technician. Completing resets the vehicle's date and mileage baseline from that service's actual values. Due records are auto-generated the moment either interval is reached |
+| 5 | Assignment | Done | Many-to-many via a join table with a composite primary key — structurally impossible to double-assign. Manager-only add and remove, both logged to the audit trail. Technicians see all their assigned records across every vehicle via the Service Records tab |
+| 6 | Finding service records | Done | Server-side text search over descriptions, filters for vehicle/status/technician, sorting by scheduled date/status/last updated, and real pagination returning the total match count alongside each page |
+| 7 | Bulk odometer updates and export | Done | CSV upload with per-row success/reject report and specific rejection reasons. Valid rows apply even when others in the same file are rejected. Separate CSV export of full service history |
+| 8 | Dashboard | Done | Four headline numbers (due/in-service/completed-this-week/overdue), breakdown by status, breakdown by technician, and an 8-week completions chart. All numbers computed from live queries |
+| 9 | History you cannot rewrite | Done | Every status change, assignment, unassignment, and note is appended to an audit log. No update or delete endpoint exists for audit rows — not permission-gated, simply absent. Timeline visible inline per service record |
+| 10 | Overdue service alerts | Done | Alerts area with a nav badge showing the live count. Manager can dismiss an alert. Dismissal resets automatically when the vehicle enters its next due cycle, so the alert genuinely returns rather than staying suppressed |
 
 ## How much time did you actually spend?
 
-<-- Only you know this — tally it up honestly, even if it's over or under your original estimate. -->
+Approximately 11.5–12 hours across four sessions over five days:
+- Aug 29 (~2 hrs) — initial project scaffolding
+- Aug 30 (~4.5 hrs) — core feature build (auth, state machine, search, archive)
+- Aug 31 (~1.5 hrs) — dashboard rework, audit timeline, overdue alerts
+- Sep 1–3 (~3.5 hrs) — deployment, debugging, seeding, and documentation
 
 ## What would you do next, with another 12 hours?
 
-<-- Your own answer. Some real candidates, if it helps jog thinking: the interval-detection logic
-that auto-creates "Due" records only runs when someone happens to hit an endpoint that checks for
-it (no real background scheduler); "completed this week" and the chart both use a rolling 7-day
-window rather than calendar weeks; there's no distinction between an auto-generated "Due" record and
-one a manager creates by hand for something unrelated to the interval. Use these only if they
-genuinely match what you'd prioritize — don't just copy them in. -->
+The single most impactful change would be replacing the lazy, on-read due-detection with a real
+background scheduler. Right now a vehicle is only checked for being due when someone visits the
+app — if the app sits idle for a week, a vehicle could pass its service interval with no alert
+ever appearing. This is the most visible gap between a demo project and a genuinely reliable
+production system. Everything else needed for it already exists (the due-detection logic,
+the auto-record creation, the alert system) — it just needs a scheduled job to call that logic
+on a fixed interval rather than waiting for a human page load to trigger it.
+
+Beyond that: row-level locking on the state machine (currently unguarded against a genuine
+concurrent-request race condition), a fuel-tracking model linked to vehicles, and driver-to-
+vehicle assignment — all of which would extend what's already built rather than introducing
+new patterns.
 
 ## What are you least happy with in this codebase, and why?
 
-<-- Your own honest answer — this is the question most worth answering for real, since it's
-exactly what you'll be asked to defend on the call. -->
+The N+1 query pattern in the vehicle list and dashboard overdue calculation. Both loop over every
+active vehicle in Python and issue a separate database query per vehicle to check its due/overdue
+status. At the current demo scale this is invisible, but it would become the dominant cost at
+real fleet sizes — the fix is a single aggregate SQL query that computes overdue status across
+all vehicles in one round-trip, plus an index on service_records(vehicle_id, status). It was a
+deliberate cut given the time budget, but it's the piece I'd be least comfortable defending at
+production scale.
